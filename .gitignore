@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Models (large binary files)
+models/*.gguf
+models/embeddings/
+
+# Generated / cache
+cache/
+logs/
+data/
+
+# OS
+.DS_Store
+Thumbs.db
