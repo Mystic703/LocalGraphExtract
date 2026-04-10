@@ -18,22 +18,21 @@ _EXTRACTION_SYSTEM = (
 )
 
 EXTRACTION_PROMPT = PromptTemplate(
-    _EXTRACTION_SYSTEM
-    + """
----------------------
-Texte source :
+    _EXTRACTION_SYSTEM + """
+
+INSTRUCTIONS (ne pas extraire ces lignes) :
+1. Extrais UNIQUEMENT les faits présents dans le TEXTE SOURCE ci-dessous.
+2. Les termes doivent apparaître TELS QUELS dans le texte source.
+3. Ne génère PAS de valeurs numériques absentes du texte.
+4. Maximum 5 triplets par texte.
+5. Si rien n'est extractible : réponds uniquement AUCUN_TRIPLET
+
+=== TEXTE SOURCE (extraire uniquement d'ici) ===
 {text}
----------------------
+=== FIN DU TEXTE SOURCE ===
 
-RÈGLES STRICTES :
-1. Chaque mot dans le triplet DOIT être présent VERBATIM dans le texte source.
-2. Ne génère PAS de valeurs numériques absentes du texte (températures, masses, taux...).
-3. Si tu n'es pas certain qu'une valeur vient du texte, omets ce triplet.
-4. Extrais entre 0 et 5 triplets maximum.
-5. Si rien de pertinent n'est extractible : réponds uniquement AUCUN_TRIPLET.
-
-Format STRICT (une ligne par triplet, rien d'autre) :
-(Sujet, RELATION, Objet)
+Format (une ligne par triplet, utilise des crochets) :
+[terme_du_texte] -- RELATION --> [terme_du_texte]
 
 Triplets :"""
 )

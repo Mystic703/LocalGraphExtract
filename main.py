@@ -1,43 +1,56 @@
 """
-main.py — Orchestrates the full pipeline end-to-end.
+main.py — Pipeline entry point.
 
-Usage:
-    python main.py --source path/to/doc.pdf          # full run (ingest + query)
-    python main.py --source path/to/doc.pdf --ingest # ingest only
-    python main.py --query-only                      # load existing index + query
-    python main.py --source path/to/doc.pdf --viz    # ingest + visualise graph
+Local:
+    python main.py --source data/rapport.pdf          # ingest + query
+    python main.py --source data/rapport.pdf --ingest # ingest only
+    python main.py --query-only                        # load cached graph + query
+    python main.py --source data/rapport.pdf --viz     # ingest + visualise
+
+CCRT (called by SLURM scripts):
+    PIPELINE_MODE=ccrt python main.py --source $WORK/data/rapport.pdf --ingest
+    PIPELINE_MODE=ccrt python main.py --query-only
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
 import nest_asyncio
 nest_asyncio.apply()
 
-# ── Logging setup ──────────────────────────────────────────────────────────────
+# ── Directory bootstrap ────────────────────────────────────────────────────────
+# Must happen before config is imported so env vars are already set.
+for _d in ("logs", "cache"):
+    Path(_d).mkdir(parents=True, exist_ok=True)
+
+# ── Logging ────────────────────────────────────────────────────────────────────
+_slurm_id  = os.getenv("SLURM_JOB_ID", "local")
+_log_file  = f"logs/pipeline_{_slurm_id}.log"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
     datefmt="%H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("logs/pipeline.log", encoding="utf-8"),
+        logging.FileHandler(_log_file, encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
 
-# ── Local imports (after logging is configured) ────────────────────────────────
+# ── Local imports ──────────────────────────────────────────────────────────────
 from config import MODE, get_profile
 from graph import build_graph_store, build_index, load_existing_index, print_graph_stats
-from loader import chunk_markdown, load_document
+from loader import load_document, chunk_markdown
 from retrieval import build_query_engine, run_queries
 from visualize import plot_graph
 
-# ── Sample questions (edit freely) ────────────────────────────────────────────
+# ── Demo questions (edit freely) ──────────────────────────────────────────────
 DEMO_QUESTIONS = [
     "Comment est assurée la protection contre les incendies ?",
     "Quelles sont les valeurs de relâchement admissibles en CNT et en CAT ?",
@@ -45,20 +58,24 @@ DEMO_QUESTIONS = [
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="KG pipeline — document → Neo4j → RAG")
-    p.add_argument("--source",     type=str,  help="Path to the source PDF")
-    p.add_argument("--ingest",     action="store_true", help="Run ingestion only, skip QA")
-    p.add_argument("--query-only", action="store_true", help="Skip ingestion, load existing index")
-    p.add_argument("--viz",        action="store_true", help="Visualise the graph after ingestion")
-    p.add_argument("--force-reload", action="store_true", help="Ignore doc cache and re-convert PDF")
+    p = argparse.ArgumentParser(
+        description="GraphRAG pipeline — document → graph → RAG",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("--source",       type=str,  help="Path to the source PDF")
+    p.add_argument("--ingest",       action="store_true", help="Run ingestion only (no QA)")
+    p.add_argument("--query-only",   action="store_true", help="Skip ingestion, load cached graph")
+    p.add_argument("--viz",          action="store_true", help="Plot the knowledge graph after ingestion")
+    p.add_argument("--force-reload", action="store_true", help="Ignore doc cache, re-convert PDF")
+    p.add_argument("--question",     type=str,  help="Single question (non-interactive)")
     return p.parse_args()
 
 
 def main() -> None:
-    args = parse_args()
+    args    = parse_args()
     profile = get_profile()
 
-    logger.info(f"Starting pipeline  |  MODE={MODE}")
+    logger.info(f"Pipeline start | MODE={MODE} | SLURM_JOB_ID={_slurm_id}")
 
     graph_store = build_graph_store()
 
@@ -72,7 +89,7 @@ def main() -> None:
         markdown    = load_document(source_path, force_reload=args.force_reload)
         nodes       = chunk_markdown(markdown, node_slice=profile["node_slice"])
 
-        logger.info(f"Ingesting {len(nodes)} nodes into Neo4j...")
+        logger.info(f"Ingesting {len(nodes)} node(s) into graph store…")
         index = build_index(nodes, graph_store)
         print_graph_stats(graph_store)
 
@@ -80,15 +97,20 @@ def main() -> None:
         index = load_existing_index(graph_store)
         print_graph_stats(graph_store)
 
-    # ── Visualisation ──────────────────────────────────────────────────────────
+    # ── Visualisation (local only — requires display) ──────────────────────────
     if args.viz:
-        logger.info("Rendering graph...")
-        plot_graph(index)
+        if MODE == "ccrt":
+            logger.warning("--viz skipped: no display available on CCRT.")
+        else:
+            plot_graph(index)
 
     # ── QA ────────────────────────────────────────────────────────────────────
     if not args.ingest:
         query_engine = build_query_engine(index)
-        run_queries(query_engine, DEMO_QUESTIONS)
+        questions    = [args.question] if args.question else DEMO_QUESTIONS
+        run_queries(query_engine, questions)
+
+    logger.info("Pipeline complete.")
 
 
 if __name__ == "__main__":
