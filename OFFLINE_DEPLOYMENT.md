@@ -1,7 +1,7 @@
 # Déploiement Offline — CCRT/TGCC
 
 Guide de préparation et déploiement du pipeline KG sur environnement air-gappé
-(serveurs sans accès internet, ex: CCRT/TGCC).
+(serveurs sans accès internet).
 
 ---
 
@@ -69,10 +69,6 @@ pip download llama-cpp-python \
   --python-version 311 \
   -d ./pip_packages/
 ```
-
-> Pour GPU A100 : contacter l'équipe CCRT pour la wheel llama-cpp-python
-> compilée avec support CUDA.
-
 ### 1.6 Sauvegarder l'image Docker Neo4j
 
 ```bash
