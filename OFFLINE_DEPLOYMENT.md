@@ -1,5 +1,4 @@
-# Déploiement Offline — CCRT/TGCC
-
+# Déploiement Offline
 Guide de préparation et déploiement du pipeline KG sur environnement air-gappé
 (serveurs sans accès internet).
 
