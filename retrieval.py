@@ -1,5 +1,5 @@
 """
-retrieval.py — Hybrid retriever and query engine construction.
+retrieval.py — Hybrid retriever, query engine, and interactive Q&A loop.
 """
 
 from __future__ import annotations
@@ -19,16 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_query_engine(index: PropertyGraphIndex) -> RetrieverQueryEngine:
-    """
-    Build a hybrid (vector + graph) query engine.
-
-    Strategy:
-      - VectorContextRetriever  → finds nodes by semantic similarity + walks
-                                  graph edges (path_depth=1)
-      - index.as_retriever      → standard vector retriever over node text
-      - QueryFusionRetriever    → deduplicates and re-ranks results from both
-    """
-    p = get_profile()
+    p     = get_profile()
     llm   = get_answer_llm()
     embed = get_embed_model()
     top_k = p["similarity_top_k"]
@@ -39,7 +30,7 @@ def build_query_engine(index: PropertyGraphIndex) -> RetrieverQueryEngine:
         index.property_graph_store,
         embed_model=embed,
         similarity_top_k=top_k * 2,
-        path_depth=1,        # keep focused; raise to 2 on server if needed
+        path_depth=1,
         include_text=True,
     )
 
@@ -61,17 +52,62 @@ def build_query_engine(index: PropertyGraphIndex) -> RetrieverQueryEngine:
     return query_engine
 
 
-def run_queries(query_engine: RetrieverQueryEngine, questions: list[str]) -> None:
-    """Run a list of questions and pretty-print answers + source previews."""
-    for question in questions:
-        print(f"\n{'=' * 60}")
-        print(f"Q : {question}")
-        print("=" * 60)
+# ── Single question ────────────────────────────────────────────────────────────
 
+def _ask(query_engine: RetrieverQueryEngine, question: str) -> None:
+    """Run one question and print the answer with source previews."""
+    print(f"\n{'=' * 60}")
+    print(f"Q : {question}")
+    print("=" * 60)
+
+    try:
         response = query_engine.query(question)
-        print(f"R : {response.response}")
+        print(f"\nR : {response.response}")
 
-        print(f"\nSources utilisées : {len(response.source_nodes)}")
-        for node in response.source_nodes[:3]:
-            score = f"{node.score:.4f}" if node.score is not None else "N/A"
-            print(f"  [{score}] {node.node.text[:200]}")
+        if response.source_nodes:
+            print(f"\nSources ({len(response.source_nodes)}) :")
+            for node in response.source_nodes[:3]:
+                score   = f"{node.score:.4f}" if node.score is not None else "N/A"
+                preview = node.node.text[:200].replace("\n", " ")
+                print(f"  [{score}] {preview}...")
+
+    except Exception as e:
+        logger.error(f"Query failed: {e}")
+        print(f"  Erreur : {e}")
+
+
+# ── Batch mode ─────────────────────────────────────────────────────────────────
+
+def run_queries(query_engine: RetrieverQueryEngine, questions: list[str]) -> None:
+    """Fire a predefined list of questions and print all answers."""
+    for question in questions:
+        _ask(query_engine, question)
+
+
+# ── Interactive mode ───────────────────────────────────────────────────────────
+
+def run_interactive(query_engine: RetrieverQueryEngine) -> None:
+    """
+    Start an interactive Q&A loop in the terminal.
+    Type 'exit' or press Ctrl+C to quit.
+    """
+    print("\n" + "=" * 60)
+    print("  Mode interactif — posez vos questions sur le document")
+    print("  Tapez 'exit' pour quitter")
+    print("=" * 60)
+
+    while True:
+        try:
+            question = input("\nQ : ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\nAu revoir.")
+            break
+
+        if not question:
+            continue
+
+        if question.lower() in ("exit", "quit", "q"):
+            print("Au revoir.")
+            break
+
+        _ask(query_engine, question)
